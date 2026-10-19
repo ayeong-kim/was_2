@@ -1,19 +1,19 @@
 from repositorys.repository_manager import run, execute
 
-# 진료 + 담당 의사 이름 + 동물 정보 (owners는 지점 확인용)
+# 진료 + 담당 의사 이름 + 동물 정보 (Owner는 지점 확인용)
 SELECT = """
     SELECT c.*, u.name AS vet_name, p.pname, p.gender, p.age, p.weight, p.type, p.breed, p.notes
-    FROM consultations c
-    JOIN users u ON u.uid = c.vet_uid
-    JOIN pets p ON p.pid = c.pid
-    JOIN owners o ON o.oid = p.oid
+    FROM Consultation c
+    JOIN User u ON u.uid = c.vet_uid
+    JOIN Pet p ON p.pid = c.pid
+    JOIN Owner o ON o.oid = p.oid
 """
 
 
 class ConsultationRepository:
     async def insert(self, pid, vet_uid, purpose):
         cur = await run(lambda conn: execute(conn,
-            "INSERT INTO consultations (pid, vet_uid, purpose) VALUES (%s, %s, %s)",
+            "INSERT INTO Consultation (pid, vet_uid, purpose) VALUES (%s, %s, %s)",
             (pid, vet_uid, purpose),
         ))
         return cur.lastrowid
@@ -32,14 +32,14 @@ class ConsultationRepository:
 
     async def update_status(self, cid, vet_uid, before, after):
         cur = await run(lambda conn: execute(conn,
-            "UPDATE consultations SET status = %s WHERE cid = %s AND vet_uid = %s AND status = %s",
+            "UPDATE Consultation SET status = %s WHERE cid = %s AND vet_uid = %s AND status = %s",
             (after, cid, vet_uid, before),
         ))
         return cur.rowcount
 
     async def update_diagnosis(self, cid, vet_uid, diagnosis):
         cur = await run(lambda conn: execute(conn,
-            "UPDATE consultations SET diagnosis = %s WHERE cid = %s AND vet_uid = %s AND status = '진료중'",
+            "UPDATE Consultation SET diagnosis = %s WHERE cid = %s AND vet_uid = %s AND status = '진료중'",
             (diagnosis, cid, vet_uid),
         ))
         return cur.rowcount

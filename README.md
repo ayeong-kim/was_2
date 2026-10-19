@@ -63,8 +63,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON petclinic.* TO 'petclinic_app'@'10.0.2%.
 
 ```sql
 -- 해시: python3 -c "import hashlib; print(hashlib.sha256(b'새비밀번호').hexdigest())"
-UPDATE users SET password = '<해시>' WHERE login_id = 'desk1';
-DELETE FROM sessions WHERE uid = (SELECT uid FROM users WHERE login_id = 'desk1');   -- 기존 로그인 끊기
+UPDATE User SET password = '<해시>' WHERE login_id = 'desk1';
+DELETE FROM Session WHERE uid = (SELECT uid FROM User WHERE login_id = 'desk1');   -- 기존 로그인 끊기
 ```
 
 | 지점 | 데스크 | 수의사 |
@@ -111,14 +111,14 @@ repositorys/                레포지토리, DB 연결·트랜잭션
 
 | 테이블 | 컬럼 |
 |---|---|
-| users | uid, login_id(UNIQUE, 대소문자 구분), password(sha256), name, role(`desk`/`vet`), branch |
-| sessions | session_id(쿠키 값), uid → users, created_at |
-| owners | oid, oname, pnum, address, branch(등록한 지점) |
-| pets | pid, oid → owners, pname, gender, age, weight, type, breed, notes |
-| consultations | cid, pid → pets, vet_uid → users, date(등록 시각 자동), purpose, diagnosis, status(`대기`/`진료중`/`종료`) |
+| User | uid, login_id(UNIQUE, 대소문자 구분), password(sha256), name, role(`desk`/`vet`), branch |
+| Session | session_id(쿠키 값), uid → User, created_at |
+| Owner | oid, oname, pnum, address, branch(등록한 지점) |
+| Pet | pid, oid → Owner, pname, gender, age, weight, type, breed, notes |
+| Consultation | cid, pid → Pet, vet_uid → User, date(등록 시각 자동), purpose, diagnosis, status(`대기`/`진료중`/`종료`) |
 
 - 타입은 ERD와 같습니다(VARCHAR 길이, `weight DECIMAL(5,2)`, 날짜 `DATETIME`). 길이·범위를 넘는 입력은 요청 단계에서 422로 막습니다.
-- 방문 등록부터 진료 종료까지가 `consultations`의 한 행입니다.
+- 방문 등록부터 진료 종료까지가 `Consultation`의 한 행입니다.
 - 보호자는 등록한 간호사의 지점(`branch`)으로 저장됩니다. 동물과 진료는 보호자를 통해 지점이 정해집니다.
 - 다른 지점의 보호자·동물·진료 이력은 조회·수정·방문 등록이 모두 안 됩니다(404). 같은 손님이 두 지점을 다니면 지점마다 따로 등록합니다.
 
@@ -126,8 +126,8 @@ repositorys/                레포지토리, DB 연결·트랜잭션
 
 - `POST /login`에 성공하면 `session_id` 쿠키(httponly)가 생깁니다. 이후 요청에는 이 쿠키를 같이 보내야 합니다.
 - `/desk/*`는 desk 계정만, `/vet/*`는 vet 계정만 호출할 수 있습니다. 아니면 401입니다.
-- 세션은 DB `sessions` 테이블에 저장합니다. 로그인하면 행이 생기고 로그아웃하면 지워집니다. WAS를 재시작해도 로그인이 유지됩니다.
-- 요청마다 쿠키의 `session_id`로 `sessions` ↔ `users`를 조회해서 사용자와 권한을 확인합니다.
+- 세션은 DB `Session` 테이블에 저장합니다. 로그인하면 행이 생기고 로그아웃하면 지워집니다. WAS를 재시작해도 로그인이 유지됩니다.
+- 요청마다 쿠키의 `session_id`로 `Session` ↔ `User`를 조회해서 사용자와 권한을 확인합니다.
 - 세션은 `SESSION_HOURS`(기본 8시간)가 지나면 만료되어 401이 됩니다. 쿠키도 같은 시간 뒤에 사라지고, 만료된 행은 다음 로그인 때 정리됩니다.
 - 로그인 후 홈 이동, 로그아웃 후 로그인 페이지 이동은 클라이언트가 응답의 `role`을 보고 처리합니다.
 
@@ -221,4 +221,4 @@ repositorys/                레포지토리, DB 연결·트랜잭션
 - 명세의 `PATCH /pet{pet_id}`는 `PATCH /desk/pet/{pet_id}`로 구현했습니다(오타로 판단).
 - 로그인 페이지 보여주기(`GET /`)와 동물 삭제(`DELETE /pet/{pet_id}`)는 없습니다.
 - 방문 날짜는 입력받지 않고 서버가 자동으로 저장합니다.
-- `users`에 `name` 컬럼을 추가했습니다(담당 의사 이름 표시용).
+- `User`에 `name` 컬럼을 추가했습니다(담당 의사 이름 표시용).

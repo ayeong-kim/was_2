@@ -5,7 +5,7 @@
 CREATE DATABASE IF NOT EXISTS petclinic CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE petclinic;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS User (
     uid      INT AUTO_INCREMENT PRIMARY KEY,
     login_id VARCHAR(50)  COLLATE utf8mb4_bin NOT NULL UNIQUE,   -- 대소문자 구분
     password VARCHAR(255) NOT NULL,                              -- sha256 해시
@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS users (
     branch   VARCHAR(50)  NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE IF NOT EXISTS Session (
     session_id VARCHAR(32) PRIMARY KEY,                          -- 쿠키로 주고받는 값
     uid        INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (uid) REFERENCES users(uid)
+    FOREIGN KEY (uid) REFERENCES User(uid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS owners (
+CREATE TABLE IF NOT EXISTS Owner (
     oid     INT AUTO_INCREMENT PRIMARY KEY,
     oname   VARCHAR(50)  NOT NULL,
     pnum    VARCHAR(20)  NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS owners (
     branch  VARCHAR(50)  NOT NULL                                -- 등록한 지점 (다른 지점에서는 안 보임)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS pets (
+CREATE TABLE IF NOT EXISTS Pet (
     pid    INT AUTO_INCREMENT PRIMARY KEY,
     oid    INT NOT NULL,
     pname  VARCHAR(50) NOT NULL,
@@ -39,10 +39,10 @@ CREATE TABLE IF NOT EXISTS pets (
     type   VARCHAR(20) NOT NULL,
     breed  VARCHAR(50),
     notes  TEXT,
-    FOREIGN KEY (oid) REFERENCES owners(oid)
+    FOREIGN KEY (oid) REFERENCES Owner(oid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS consultations (
+CREATE TABLE IF NOT EXISTS Consultation (
     cid       INT AUTO_INCREMENT PRIMARY KEY,
     pid       INT NOT NULL,
     vet_uid   INT NOT NULL,
@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS consultations (
     purpose   VARCHAR(100) NOT NULL,
     diagnosis TEXT,
     status    VARCHAR(20) NOT NULL DEFAULT '대기',               -- 대기 / 진료중 / 종료
-    FOREIGN KEY (pid) REFERENCES pets(pid),
-    FOREIGN KEY (vet_uid) REFERENCES users(uid)
+    FOREIGN KEY (pid) REFERENCES Pet(pid),
+    FOREIGN KEY (vet_uid) REFERENCES User(uid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- WAS 전용 계정: 최소 권한(CRUD)만. <비밀번호>를 바꾼 뒤 실행하세요.

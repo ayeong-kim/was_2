@@ -89,7 +89,7 @@ def init_db():
         # 테스트 계정: SEED_PASSWORD가 있을 때만 생성, 이미 있는 아이디는 건너뜀
         password = hashlib.sha256(SEED_PASSWORD.encode()).hexdigest()
         conn.cursor().executemany(
-            "INSERT IGNORE INTO users (login_id, password, name, role, branch) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT IGNORE INTO User (login_id, password, name, role, branch) VALUES (%s, %s, %s, %s, %s)",
             [
                 ("desk1", password, "김간호", "desk", "강남점"),
                 ("vet1", password, "이수의", "vet", "강남점"),

@@ -21,7 +21,7 @@ class UserService:
     async def vets(self, branch):
         return [UserResponse(**user) for user in await self.user_repository.find_vets(branch)]
 
-    # 세션은 DB(sessions 테이블)에 저장 → WAS 재시작에도 유지, 같은 DB를 쓰는 WAS끼리 공유
+    # 세션은 DB(Session 테이블)에 저장 → WAS 재시작에도 유지, 같은 DB를 쓰는 WAS끼리 공유
     # SESSION_HOURS가 지난 세션은 만료 (로그인할 때 만료된 세션 정리)
     async def create_session(self, user):
         await self.session_repository.delete_expired(SESSION_HOURS)

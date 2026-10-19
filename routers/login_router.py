@@ -10,7 +10,7 @@ controller = LoginControllers()
 
 
 def login_user(role):
-    # 세션 확인(DB sessions 테이블) + 권한(desk / vet) 확인
+    # 세션 확인(DB Session 테이블) + 권한(desk / vet) 확인
     async def check(session_id: str | None = Cookie(None)):
         user = await controller.session_user(session_id) if session_id else None
         if user is None or user.role != role:
