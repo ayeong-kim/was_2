@@ -2,7 +2,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Response
 
 from controllers.login_controllers import LoginControllers
 from routers.datamodels import login_datamodels
-from config import COOKIE_SECURE
+from config import COOKIE_SECURE, SESSION_HOURS
 
 router = APIRouter(prefix="/login", tags=["login"])
 
@@ -25,7 +25,7 @@ async def login(body: login_datamodels.LoginRequest, response: Response):
     if result is None:
         raise HTTPException(status_code=401)
     user, session_id = result
-    response.set_cookie("session_id", session_id, httponly=True, secure=COOKIE_SECURE)
+    response.set_cookie("session_id", session_id, httponly=True, secure=COOKIE_SECURE, max_age=SESSION_HOURS * 3600)
     return user
 
 

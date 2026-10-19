@@ -1,22 +1,46 @@
 import asyncio
 import contextvars
 import hashlib
-import sqlite3
-from contextlib import asynccontextmanager, closing
-from decimal import Decimal
+from contextlib import asynccontextmanager
 
-from config import DB_PATH   # 파일이 없으면 새로 만들어요
+import pymysql
+from pymysql.constants import FIELD_TYPE
+from pymysql.converters import conversions
 
-sqlite3.register_adapter(Decimal, float)   # sqlite는 Decimal 저장 불가
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, SEED_PASSWORD
 
 _transaction = contextvars.ContextVar("transaction", default=None)   # 현재 작업의 트랜잭션 연결
 
+# 조회 결과를 SQLite 때와 같은 형태로 받음 → 응답 JSON·웹 화면 그대로
+_CONV = dict(conversions)
+_CONV[FIELD_TYPE.DATETIME] = str        # DATETIME → "2026-10-19 14:30:00" 문자열
+_CONV[FIELD_TYPE.NEWDECIMAL] = float    # DECIMAL(5,2) → 3.5 (3.50 아님)
+
 
 def connect():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)   # 트랜잭션 연결은 여러 스레드에서 이어 씀
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    return pymysql.connect(
+        host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME,
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,                 # 결과를 dict로
+        client_flag=pymysql.constants.CLIENT.FOUND_ROWS,        # UPDATE 결과 = 조건에 맞은 행 수 (값이 같아도 0 아님)
+        conv=_CONV,
+        init_command="SET time_zone = '+09:00'",              # 저장·비교 시각을 한국 시간으로 (RDS 기본은 UTC)
+    )
+
+
+def execute(conn, sql, params=None):
+    # SQL 실행 후 커서 반환 (fetchone / fetchall / lastrowid / rowcount)
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur
+
+
+def _rollback(conn):
+    # 연결이 끊겨 rollback이 실패해도 원래 에러를 그대로 올리기 위해 무시
+    try:
+        conn.rollback()
+    except Exception:
+        pass
 
 
 async def run(work):
@@ -26,8 +50,16 @@ async def run(work):
         return await asyncio.to_thread(work, conn)
 
     def job():
-        with closing(connect()) as conn, conn:   # 끝나면 commit(예외면 rollback) 후 close
-            return work(conn)
+        conn = connect()
+        try:
+            result = work(conn)
+            conn.commit()
+            return result
+        except BaseException:
+            _rollback(conn)
+            raise
+        finally:
+            conn.close()
     return await asyncio.to_thread(job)
 
 
@@ -40,7 +72,7 @@ async def transaction():
         yield
         conn.commit()
     except BaseException:
-        conn.rollback()
+        _rollback(conn)
         raise
     finally:
         _transaction.reset(token)
@@ -48,57 +80,16 @@ async def transaction():
 
 
 def init_db():
-    with closing(connect()) as conn, conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                uid      INTEGER PRIMARY KEY AUTOINCREMENT,
-                login_id TEXT NOT NULL UNIQUE,
-                password TEXT NOT NULL,
-                name     TEXT NOT NULL,
-                role     TEXT NOT NULL,      -- desk / vet
-                branch   TEXT NOT NULL
-            )""")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,   -- 쿠키로 주고받는 값
-                uid        INTEGER NOT NULL REFERENCES users(uid),
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-            )""")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS owners (
-                oid     INTEGER PRIMARY KEY AUTOINCREMENT,
-                oname   TEXT NOT NULL,
-                pnum    TEXT NOT NULL,
-                address TEXT,
-                branch  TEXT NOT NULL     -- 등록한 지점 (다른 지점에서는 안 보임)
-            )""")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pets (
-                pid    INTEGER PRIMARY KEY AUTOINCREMENT,
-                oid    INTEGER NOT NULL REFERENCES owners(oid),
-                pname  TEXT NOT NULL,
-                gender TEXT,
-                age    INTEGER,
-                weight REAL,
-                type   TEXT NOT NULL,
-                breed  TEXT,
-                notes  TEXT
-            )""")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS consultations (
-                cid       INTEGER PRIMARY KEY AUTOINCREMENT,
-                pid       INTEGER NOT NULL REFERENCES pets(pid),
-                vet_uid   INTEGER NOT NULL REFERENCES users(uid),
-                date      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-                purpose   TEXT NOT NULL,
-                diagnosis TEXT,
-                status    TEXT NOT NULL DEFAULT '대기'   -- 대기 / 진료중 / 종료
-            )""")
-
-        # 테스트 계정 (비밀번호 모두 1234), 이미 있는 아이디는 건너뜀
-        password = hashlib.sha256(b"1234").hexdigest()
-        conn.executemany(
-            "INSERT OR IGNORE INTO users (login_id, password, name, role, branch) VALUES (?, ?, ?, ?, ?)",
+    # 테이블은 클라우드에서 schema.sql로 미리 만듦 → WAS 계정은 CRUD 권한만 (CREATE 없음)
+    # 여기서는 테스트 계정만 넣음 (INSERT 권한이면 충분)
+    if not SEED_PASSWORD:
+        return
+    conn = connect()
+    try:
+        # 테스트 계정: SEED_PASSWORD가 있을 때만 생성, 이미 있는 아이디는 건너뜀
+        password = hashlib.sha256(SEED_PASSWORD.encode()).hexdigest()
+        conn.cursor().executemany(
+            "INSERT IGNORE INTO users (login_id, password, name, role, branch) VALUES (%s, %s, %s, %s, %s)",
             [
                 ("desk1", password, "김간호", "desk", "강남점"),
                 ("vet1", password, "이수의", "vet", "강남점"),
@@ -117,3 +108,6 @@ def init_db():
                 ("vet10", password, "황수의", "vet", "분당점"),
             ],
         )
+        conn.commit()
+    finally:
+        conn.close()

@@ -1,0 +1,61 @@
+-- 동물병원 WAS 테이블 생성 (MySQL 8.0 / RDS)
+-- 클라우드에서 admin(관리) 계정으로 한 번 실행합니다. WAS는 테이블을 만들지 않습니다.
+--   mysql -h <RDS 엔드포인트> -u admin -p < schema.sql
+
+CREATE DATABASE IF NOT EXISTS petclinic CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+USE petclinic;
+
+CREATE TABLE IF NOT EXISTS users (
+    uid      INT AUTO_INCREMENT PRIMARY KEY,
+    login_id VARCHAR(50)  COLLATE utf8mb4_bin NOT NULL UNIQUE,   -- 대소문자 구분
+    password VARCHAR(255) NOT NULL,                              -- sha256 해시
+    name     VARCHAR(50)  NOT NULL,
+    role     VARCHAR(20)  NOT NULL,                              -- desk / vet
+    branch   VARCHAR(50)  NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id VARCHAR(32) PRIMARY KEY,                          -- 쿠키로 주고받는 값
+    uid        INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (uid) REFERENCES users(uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS owners (
+    oid     INT AUTO_INCREMENT PRIMARY KEY,
+    oname   VARCHAR(50)  NOT NULL,
+    pnum    VARCHAR(20)  NOT NULL,
+    address VARCHAR(255),
+    branch  VARCHAR(50)  NOT NULL                                -- 등록한 지점 (다른 지점에서는 안 보임)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS pets (
+    pid    INT AUTO_INCREMENT PRIMARY KEY,
+    oid    INT NOT NULL,
+    pname  VARCHAR(50) NOT NULL,
+    gender VARCHAR(10),
+    age    INT,
+    weight DECIMAL(5,2),
+    type   VARCHAR(20) NOT NULL,
+    breed  VARCHAR(50),
+    notes  TEXT,
+    FOREIGN KEY (oid) REFERENCES owners(oid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS consultations (
+    cid       INT AUTO_INCREMENT PRIMARY KEY,
+    pid       INT NOT NULL,
+    vet_uid   INT NOT NULL,
+    date      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    purpose   VARCHAR(100) NOT NULL,
+    diagnosis TEXT,
+    status    VARCHAR(20) NOT NULL DEFAULT '대기',               -- 대기 / 진료중 / 종료
+    FOREIGN KEY (pid) REFERENCES pets(pid),
+    FOREIGN KEY (vet_uid) REFERENCES users(uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- WAS 전용 계정: 최소 권한(CRUD)만. <비밀번호>를 바꾼 뒤 실행하세요.
+-- '10.0.2%.%' = WAS 서브넷(10.0.21.x, 10.0.22.x)에서만 접속 허용
+-- CREATE USER IF NOT EXISTS 'petclinic_app'@'10.0.2%.%' IDENTIFIED BY '<비밀번호>';
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON petclinic.* TO 'petclinic_app'@'10.0.2%.%';
+-- SHOW GRANTS FOR 'petclinic_app'@'10.0.2%.%';

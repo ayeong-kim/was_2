@@ -1,6 +1,6 @@
 # 동물병원 WAS
 
-FastAPI 기반 동물병원 접수·진료 WAS입니다.
+FastAPI + MySQL(RDS) 기반 동물병원 접수·진료 WAS입니다.
 데스크(간호사)용 기능과 수의사용 기능을 각각 별도 프로세스에서 처리하고, 프로세스 안에서는 비동기로 여러 요청을 동시에 처리합니다.
 
 ## 실행
@@ -11,7 +11,7 @@ python start.py
 ```
 
 - 주소: `http://127.0.0.1:8000` (Swagger 문서: `/docs`)
-- 실행할 때 `DB_PATH`에 SQLite 파일을 만들고, 테이블이 없으면 생성합니다. 종료해도 DB는 지우지 않습니다.
+- 실행 전에 MySQL에 데이터베이스(`petclinic`), 테이블, 앱 계정이 있어야 합니다(아래 "DB 준비"). WAS는 테이블을 만들지 않습니다.
 - `reload`는 끄고 실행합니다. 켜면 uvicorn이 서버를 다른 프로세스에서 다시 import해서 Pipe가 워커와 끊깁니다.
 - 코드를 고친 뒤에는 서버를 직접 다시 실행해야 합니다.
 
@@ -23,16 +23,49 @@ python start.py
 |---|---|---|
 | `WAS_HOST` | `127.0.0.1` | 서버 주소. 클라우드(컨테이너/VM)는 `0.0.0.0` |
 | `WAS_PORT` | `8000` | 서버 포트 |
-| `DB_PATH` | `petclinic.db` | SQLite 파일 경로. 클라우드는 재시작해도 남는 볼륨 경로로 지정 |
-| `COOKIE_SECURE` | `false` | HTTPS로 서비스하면 `true` (세션 쿠키를 HTTPS에서만 전송) |
+| `DB_HOST` | `127.0.0.1` | MySQL 주소 (RDS 엔드포인트) |
+| `DB_PORT` | `3306` | MySQL 포트 |
+| `DB_NAME` | `petclinic` | 데이터베이스 이름 |
+| `DB_USER` | `petclinic_app` | 애플리케이션 전용 계정 |
+| `DB_PASSWORD` | (없음) | 계정 비밀번호 — `.env` 또는 환경변수로만, 저장소에 올리지 않음 |
+| `COOKIE_SECURE` | `false` | HTTPS로 서비스하면 `true` (세션 쿠키를 HTTPS에서만 전송). HTTP에서 `true`면 로그인이 유지되지 않음 |
+| `SESSION_HOURS` | `8` | 로그인 유지 시간(시간) |
+| `SEED_PASSWORD` | (없음) | 값이 있으면 시작할 때 테스트 계정을 이 비밀번호로 만듦. 비우면 만들지 않음 |
 
-- `.env`와 DB 파일은 `.gitignore`에 들어 있어서 저장소에 올라가지 않습니다.
-- 세션은 DB(`sessions` 테이블)에 저장하므로 WAS가 메모리에 로그인 상태를 들고 있지 않습니다. 다만 DB가 로컬 SQLite 파일이라, WAS를 여러 대로 늘리려면 모든 WAS가 같은 DB를 쓰도록 공용 DB로 바꿔야 합니다.
-- 테스트 계정은 서버를 시작할 때마다 자동으로 들어갑니다. 실제 운영 전에는 비밀번호를 바꾸거나 제거해야 합니다.
+- `.env`는 `.gitignore`에 들어 있어서 저장소에 올라가지 않습니다.
+- 세션도 DB에 저장하므로, 모든 WAS가 같은 MySQL을 쓰면 WAS를 여러 대로 늘려도 로그인이 유지됩니다.
+- Auto Scaling용 AMI를 만들 때는 `DB_PASSWORD`를 AMI에 넣지 말고, 사용자 데이터나 SSM Parameter Store에서 환경변수로 넣으세요.
+
+### DB 준비 (MySQL 8.0 / RDS)
+
+RDS 파라미터 그룹: `time_zone=Asia/Seoul`, `character_set_server=utf8mb4`, `collation_server=utf8mb4_0900_ai_ci`.
+앱도 연결할 때 `time_zone='+09:00'`으로 맞추므로 시각은 한국 시간으로 저장됩니다.
+
+**1. 테이블 생성 (admin 계정, 한 번만)**: [schema.sql](schema.sql)에 데이터베이스와 테이블 5개가 있습니다.
+```bash
+mysql -h <RDS 엔드포인트> -u admin -p < schema.sql
+```
+
+**2. WAS 전용 계정 (최소 권한: CRUD만)**
+```sql
+CREATE USER 'petclinic_app'@'10.0.2%.%' IDENTIFIED BY '<비밀번호>';
+GRANT SELECT, INSERT, UPDATE, DELETE ON petclinic.* TO 'petclinic_app'@'10.0.2%.%';
+```
+- `10.0.2%.%`는 WAS 서브넷(10.0.21.x, 10.0.22.x)만 허용합니다.
+- WAS는 테이블 생성·변경(CREATE/ALTER/DROP)을 하지 않으므로 그 권한이 필요 없습니다. 테이블 구조를 바꿀 때는 admin 계정으로 합니다.
+- 시작할 때 하는 일은 테스트 계정 넣기(`INSERT IGNORE`, `SEED_PASSWORD`가 있을 때만)뿐이라 INSERT 권한이면 충분합니다.
 
 ### 테스트 계정
 
-서버를 시작할 때 없는 아이디만 추가합니다(이미 있는 계정은 그대로 둡니다). 비밀번호는 모두 `1234`입니다.
+`SEED_PASSWORD`가 설정되어 있을 때만, 서버를 시작하면서 없는 아이디를 추가합니다(이미 있는 계정은 그대로 둡니다). 비밀번호는 모두 `SEED_PASSWORD` 값입니다.
+
+이미 만든 계정의 비밀번호를 바꿀 때는 DB에서 직접 바꿉니다.
+
+```sql
+-- 해시: python3 -c "import hashlib; print(hashlib.sha256(b'새비밀번호').hexdigest())"
+UPDATE users SET password = '<해시>' WHERE login_id = 'desk1';
+DELETE FROM sessions WHERE uid = (SELECT uid FROM users WHERE login_id = 'desk1');   -- 기존 로그인 끊기
+```
 
 | 지점 | 데스크 | 수의사 |
 |---|---|---|
@@ -64,25 +97,27 @@ main 프로세스 ─ login_router → LoginControllers → UserService → User
 - 주인 등록, 동물 추가는 트랜잭션으로 묶여 있어서, 중간에 실패하면 모두 취소됩니다.
 
 ```
-start.py                    서버 시작 (DB 생성 → 워커 실행 → uvicorn)
+start.py                    서버 시작 (테스트 계정 → 워커 실행 → uvicorn)
+schema.sql                  테이블 생성 SQL (클라우드에서 admin 계정으로 실행)
 process.py                  워커 프로세스, Pipe 통신(Channel)
 routers/                    라우터, 세션 확인
 routers/datamodels/         요청·응답 모델 (pydantic)
 controllers/                프로세스별 컨트롤러
 services/                   서비스
-repositorys/                레포지토리, DB 연결·트랜잭션·테이블 생성
+repositorys/                레포지토리, DB 연결·트랜잭션
 ```
 
 ## DB
 
 | 테이블 | 컬럼 |
 |---|---|
-| users | uid, login_id(UNIQUE), password(sha256), name, role(`desk`/`vet`), branch |
+| users | uid, login_id(UNIQUE, 대소문자 구분), password(sha256), name, role(`desk`/`vet`), branch |
 | sessions | session_id(쿠키 값), uid → users, created_at |
 | owners | oid, oname, pnum, address, branch(등록한 지점) |
 | pets | pid, oid → owners, pname, gender, age, weight, type, breed, notes |
 | consultations | cid, pid → pets, vet_uid → users, date(등록 시각 자동), purpose, diagnosis, status(`대기`/`진료중`/`종료`) |
 
+- 타입은 ERD와 같습니다(VARCHAR 길이, `weight DECIMAL(5,2)`, 날짜 `DATETIME`). 길이·범위를 넘는 입력은 요청 단계에서 422로 막습니다.
 - 방문 등록부터 진료 종료까지가 `consultations`의 한 행입니다.
 - 보호자는 등록한 간호사의 지점(`branch`)으로 저장됩니다. 동물과 진료는 보호자를 통해 지점이 정해집니다.
 - 다른 지점의 보호자·동물·진료 이력은 조회·수정·방문 등록이 모두 안 됩니다(404). 같은 손님이 두 지점을 다니면 지점마다 따로 등록합니다.
@@ -93,7 +128,7 @@ repositorys/                레포지토리, DB 연결·트랜잭션·테이블 
 - `/desk/*`는 desk 계정만, `/vet/*`는 vet 계정만 호출할 수 있습니다. 아니면 401입니다.
 - 세션은 DB `sessions` 테이블에 저장합니다. 로그인하면 행이 생기고 로그아웃하면 지워집니다. WAS를 재시작해도 로그인이 유지됩니다.
 - 요청마다 쿠키의 `session_id`로 `sessions` ↔ `users`를 조회해서 사용자와 권한을 확인합니다.
-- 세션 만료 시간은 없습니다. 로그아웃하기 전까지 유지됩니다.
+- 세션은 `SESSION_HOURS`(기본 8시간)가 지나면 만료되어 401이 됩니다. 쿠키도 같은 시간 뒤에 사라지고, 만료된 행은 다음 로그인 때 정리됩니다.
 - 로그인 후 홈 이동, 로그아웃 후 로그인 페이지 이동은 클라이언트가 응답의 `role`을 보고 처리합니다.
 
 ## 공통 응답 코드
