@@ -14,6 +14,9 @@ class ConsultationService:
     async def history(self, pid, branch):
         return [ConsultationResponse(**row) for row in await self.consultation_repository.find_by_pet(pid, branch)]
 
+    async def active_pids(self, pids):
+        return await self.consultation_repository.find_active_pids(pids)
+
     async def assigned(self, vet_uid):
         return [ConsultationResponse(**row) for row in await self.consultation_repository.find_assigned(vet_uid)]
 

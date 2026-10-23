@@ -28,6 +28,7 @@ python start.py
 | `DB_NAME` | `petclinic` | 데이터베이스 이름 |
 | `DB_USER` | `petclinic_app` | 애플리케이션 전용 계정 |
 | `DB_PASSWORD` | (없음) | 계정 비밀번호 — `.env` 또는 환경변수로만, 저장소에 올리지 않음 |
+| `DB_POOL_SIZE` | `5` | 프로세스당 DB 연결 수. 프로세스가 3개라 WAS 1대 = 15개, 2대 = 30개 (RDS `max_connections`보다 작게) |
 | `COOKIE_SECURE` | `false` | HTTPS로 서비스하면 `true` (세션 쿠키를 HTTPS에서만 전송). HTTP에서 `true`면 로그인이 유지되지 않음 |
 | `SESSION_HOURS` | `8` | 로그인 유지 시간(시간) |
 | `SEED_PASSWORD` | (없음) | 값이 있으면 시작할 때 테스트 계정을 이 비밀번호로 만듦. 비우면 만들지 않음 |
@@ -107,6 +108,12 @@ services/                   서비스
 repositorys/                레포지토리, DB 연결·트랜잭션
 ```
 
+- DB 연결: 프로세스마다 DB 작업 스레드 `DB_POOL_SIZE`개, 스레드마다 연결 1개를 계속 씁니다(처음 쓸 때 연결, 끊겼으면 다시 연결). 트랜잭션(보호자+동물 등록)은 한 스레드·한 연결 안에서 끝납니다.
+- 연결은 autocommit이라 SQL마다 바로 확정되고, 트랜잭션만 `BEGIN`~`COMMIT`으로 묶습니다. 30초 넘게 안 쓴 연결만 `ping`으로 확인합니다.
+- RDS 장애 조치 직후에는 최근에 쓴 연결로 보낸 요청이 스레드당 1건 에러(500)가 날 수 있고, 그 연결은 버리고 다음 요청부터 새로 연결합니다.
+- RDS 장애 조치로 응답이 없는 연결은 20초(`read_timeout`) 뒤 끊고 다시 연결합니다. 웹 서버의 `WAS_TIMEOUT`(30초)보다 짧아야 합니다.
+- 워커(desk/vet)가 죽으면 main도 종료합니다. systemd에서 `Restart=always`(예: `RestartSec=3`)로 실행해야 WAS 전체가 다시 시작됩니다. `on-failure`는 SIGTERM 종료를 정상 종료로 봐서 재시작하지 않습니다.
+
 ## DB
 
 | 테이블 | 컬럼 |
@@ -158,8 +165,9 @@ repositorys/                레포지토리, DB 연결·트랜잭션
 **Owner**
 ```json
 { "oid": 1, "oname": "김민주", "pnum": "010-1234-5678", "address": "서울",
-  "pets": [ Pet, ... ] }
+  "pets": [ Pet, ... ], "active_pids": [1] }
 ```
+- `active_pids`: 진료가 끝나지 않은(`대기`·`진료중`) 동물 id. 웹은 이 값으로 방문 등록 버튼을 막습니다(진료 이력을 동물마다 따로 조회하지 않음).
 
 **Consultation**
 ```json
@@ -184,7 +192,7 @@ repositorys/                레포지토리, DB 연결·트랜잭션
 |---|---|---|---|---|
 | POST | `/desk/owner` | 주인 + 동물(1마리 이상) 등록 | `{ "oname", "pnum", "address"?, "pets": [PetRequest, ...] }` | Owner |
 | GET | `/desk/owner/{owner_id}` | 주인, 동물 정보 보기 | - | Owner |
-| GET | `/desk/owner?name=` | 주인 이름 검색 (부분 일치) | - | [Owner] |
+| GET | `/desk/owner?name=` | 주인 이름 검색 (앞부분 일치, 최근 등록순. 이름을 비우면 최근 등록 20명만) | - | [Owner] |
 | PATCH | `/desk/owner/{owner_id}` | 주인 정보 수정 | `{ "oname"?, "pnum"?, "address"? }` | Owner |
 | GET | `/desk/pet/{pet_id}` | 동물 상세 | - | Pet |
 | PATCH | `/desk/pet/{pet_id}` | 동물 정보 수정 | PetRequest의 필드 중 일부 | Pet |

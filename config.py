@@ -19,6 +19,7 @@ DB_PORT = int(os.environ.get("DB_PORT", "3306"))
 DB_NAME = os.environ.get("DB_NAME", "petclinic")
 DB_USER = os.environ.get("DB_USER", "petclinic_app")                        # 애플리케이션 전용 계정
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))                     # 프로세스당 DB 연결 수 (WAS 1대 = 3배)
 
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"  # HTTPS면 true
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "8"))                   # 로그인 유지 시간

@@ -39,6 +39,7 @@ class OwnerResponse(BaseModel):
     pnum: str
     address: str | None = None
     pets: list[PetResponse]
+    active_pids: list[int] = []                    # 진료가 끝나지 않은(대기·진료중) 동물 id
 
 # 주인 정보 수정 기능 요청 (str = None: 생략은 가능, null은 422)
 

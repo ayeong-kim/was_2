@@ -18,6 +18,9 @@ class UserService:
             return None
         return UserResponse(**user)
 
+    async def is_vet(self, uid, branch):
+        return await self.user_repository.is_vet(uid, branch)
+
     async def vets(self, branch):
         return [UserResponse(**user) for user in await self.user_repository.find_vets(branch)]
 

@@ -26,6 +26,14 @@ class ConsultationRepository:
         rows = await run(lambda conn: execute(conn, SELECT + " WHERE c.pid = %s AND o.branch = %s ORDER BY c.cid DESC", (pid, branch)).fetchall())
         return [dict(row) for row in rows]
 
+    async def find_active_pids(self, pids):
+        # 진료가 끝나지 않은(대기·진료중) 동물 id를 한 번에 조회
+        if not pids:
+            return set()
+        marks = ", ".join(["%s"] * len(pids))
+        rows = await run(lambda conn: execute(conn, f"SELECT DISTINCT pid FROM Consultation WHERE pid IN ({marks}) AND status IN ('대기', '진료중')", tuple(pids)).fetchall())
+        return {row["pid"] for row in rows}
+
     async def find_assigned(self, vet_uid):
         rows = await run(lambda conn: execute(conn, SELECT + " WHERE c.vet_uid = %s AND c.status IN ('대기', '진료중') ORDER BY c.cid", (vet_uid,)).fetchall())
         return [dict(row) for row in rows]

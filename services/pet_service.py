@@ -6,10 +6,10 @@ class PetService:
     def __init__(self):
         self.pet_repository = PetRepository()
 
-    async def regist(self, oid, pets):
+    def regist(self, conn, oid, pets):
         result = []
         for pet in pets:
-            pid = await self.pet_repository.insert(oid, pet)
+            pid = self.pet_repository.insert(conn, oid, pet)
             result.append(PetResponse(pid=pid, **pet.model_dump()))
         return result
 
@@ -19,6 +19,13 @@ class PetService:
 
     async def find_by_owner(self, oid):
         return [PetResponse(**pet) for pet in await self.pet_repository.find_by_owner(oid)]
+
+    async def find_by_owners(self, oids):
+        # {보호자 id: [동물, ...]}
+        pets = {oid: [] for oid in oids}
+        for pet in await self.pet_repository.find_by_owners(oids):
+            pets[pet["oid"]].append(PetResponse(**pet))
+        return pets
 
     async def update(self, pid, data):
         fields = data.model_dump(exclude_unset=True)

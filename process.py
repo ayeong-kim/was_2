@@ -1,7 +1,9 @@
 import asyncio
 import itertools
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pipe
+from config import DB_POOL_SIZE
 from controllers.desk_controllers import DeskControllers
 from controllers.vet_controllers import VetControllers
 
@@ -15,9 +17,12 @@ def vet_worker(conn):
     asyncio.run(serve(conn, VetControllers()))
 
 async def serve(conn, controller):
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(DB_POOL_SIZE))     # DB 스레드 수 = 연결 수 (스레드마다 연결 1개)
+    receiver = ThreadPoolExecutor(1)                                # 받기 전용 스레드 (DB 연결 안 씀)
     tasks = set()                                                   # 실행 중인 task가 GC 되지 않게 보관
     while True:
-        rid, method, args = await asyncio.to_thread(conn.recv)      # 메인이 보낸 값 받기
+        rid, method, args = await loop.run_in_executor(receiver, conn.recv)   # 메인이 보낸 값 받기
         task = asyncio.create_task(handle(conn, controller, rid, method, args))
         tasks.add(task)
         task.add_done_callback(tasks.discard)

@@ -1,7 +1,7 @@
 import asyncio
-import contextvars
 import hashlib
-from contextlib import asynccontextmanager
+import threading
+import time
 
 import pymysql
 from pymysql.constants import FIELD_TYPE
@@ -9,7 +9,8 @@ from pymysql.converters import conversions
 
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, SEED_PASSWORD
 
-_transaction = contextvars.ContextVar("transaction", default=None)   # 현재 작업의 트랜잭션 연결
+_local = threading.local()   # DB 작업 스레드마다 연결 1개를 계속 씀 → 프로세스당 연결 수 = 스레드 수
+_PING_IDLE = 30              # 이 시간(초) 이상 안 쓴 연결만 ping으로 확인 (바쁠 때는 확인 왕복 생략)
 
 # 조회 결과를 SQLite 때와 같은 형태로 받음 → 응답 JSON·웹 화면 그대로
 _CONV = dict(conversions)
@@ -24,8 +25,28 @@ def connect():
         cursorclass=pymysql.cursors.DictCursor,                 # 결과를 dict로
         client_flag=pymysql.constants.CLIENT.FOUND_ROWS,        # UPDATE 결과 = 조건에 맞은 행 수 (값이 같아도 0 아님)
         conv=_CONV,
+        autocommit=True,                                        # SQL 하나씩 바로 확정 → 조회 뒤 COMMIT 왕복 없음 (묶을 때는 transaction)
         init_command="SET time_zone = '+09:00'",              # 저장·비교 시각을 한국 시간으로 (RDS 기본은 UTC)
+        connect_timeout=10,
+        read_timeout=20, write_timeout=20,                      # RDS 장애 조치로 응답 없는 연결에 묶이지 않게 (웹 서버 WAS_TIMEOUT 30초보다 짧게)
     )
+
+
+def _conn():
+    # 이 스레드의 연결 (처음 쓸 때 연결 → fork 전에 만든 연결을 자식이 물려받지 않음)
+    conn = getattr(_local, "conn", None)
+    now = time.monotonic()
+    if conn is not None:
+        try:
+            if not conn.open or now - _local.used > _PING_IDLE:   # 쿼리 중 끊긴 연결이거나 오래 안 쓴 연결만 확인
+                conn.ping()
+            _local.used = now
+            return conn
+        except pymysql.Error:                                   # 끊김 (RDS 장애 조치·오래 안 쓴 연결) → 버리고 새로 연결
+            _local.conn = None
+    _local.conn = connect()
+    _local.used = now
+    return _local.conn
 
 
 def execute(conn, sql, params=None):
@@ -44,13 +65,15 @@ def _rollback(conn):
 
 
 async def run(work):
-    # work(conn)을 스레드에서 실행 → DB를 기다리는 동안 다른 요청 처리 (비동기 I/O)
-    conn = _transaction.get()
-    if conn is not None:
-        return await asyncio.to_thread(work, conn)
+    # work(conn)을 스레드에서 실행 → DB를 기다리는 동안 다른 요청 처리 (비동기 I/O), SQL은 autocommit으로 바로 확정
+    return await asyncio.to_thread(lambda: work(_conn()))
 
+
+async def transaction(work):
+    # 여러 SQL을 한 트랜잭션으로: work(conn) 전체가 한 스레드·한 연결에서 실행 → 전부 저장 또는 전부 취소
     def job():
-        conn = connect()
+        conn = _conn()
+        conn.begin()
         try:
             result = work(conn)
             conn.commit()
@@ -58,25 +81,7 @@ async def run(work):
         except BaseException:
             _rollback(conn)
             raise
-        finally:
-            conn.close()
     return await asyncio.to_thread(job)
-
-
-@asynccontextmanager
-async def transaction():
-    # 안에서 실행되는 run()을 한 연결로 묶음 → 전부 저장 또는 전부 취소
-    conn = connect()
-    token = _transaction.set(conn)
-    try:
-        yield
-        conn.commit()
-    except BaseException:
-        _rollback(conn)
-        raise
-    finally:
-        _transaction.reset(token)
-        conn.close()
 
 
 def init_db():

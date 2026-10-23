@@ -5,8 +5,8 @@ class OwnerService:
     def __init__(self):
         self.owner_repository = OwnerRepository()
 
-    async def regist(self, data, branch):
-        return await self.owner_repository.insert(data, branch)
+    def regist(self, conn, data, branch):
+        return self.owner_repository.insert(conn, data, branch)
 
     async def get(self, oid, branch):
         return await self.owner_repository.find(oid, branch)

@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS Session (
     session_id VARCHAR(32) PRIMARY KEY,                          -- 쿠키로 주고받는 값
     uid        INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (uid) REFERENCES User(uid)
+    FOREIGN KEY (uid) REFERENCES User(uid),
+    INDEX idx_session_created (created_at)                       -- 만료 세션 조회·삭제
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS Owner (
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS Owner (
     oname   VARCHAR(50)  NOT NULL,
     pnum    VARCHAR(20)  NOT NULL,
     address VARCHAR(255),
-    branch  VARCHAR(50)  NOT NULL                                -- 등록한 지점 (다른 지점에서는 안 보임)
+    branch  VARCHAR(50)  NOT NULL,                               -- 등록한 지점 (다른 지점에서는 안 보임)
+    INDEX idx_owner_branch_name (branch, oname)                  -- 지점별 보호자 이름 검색
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS Pet (
@@ -51,7 +53,8 @@ CREATE TABLE IF NOT EXISTS Consultation (
     diagnosis TEXT,
     status    VARCHAR(20) NOT NULL DEFAULT '대기',               -- 대기 / 진료중 / 종료
     FOREIGN KEY (pid) REFERENCES Pet(pid),
-    FOREIGN KEY (vet_uid) REFERENCES User(uid)
+    FOREIGN KEY (vet_uid) REFERENCES User(uid),
+    INDEX idx_consult_vet_status (vet_uid, status)               -- 수의사별 대기·진료중 목록
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- WAS 전용 계정: 최소 권한(CRUD)만. <비밀번호>를 바꾼 뒤 실행하세요.
@@ -59,3 +62,9 @@ CREATE TABLE IF NOT EXISTS Consultation (
 -- CREATE USER IF NOT EXISTS 'petclinic_app'@'10.0.2%.%' IDENTIFIED BY '<비밀번호>';
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON petclinic.* TO 'petclinic_app'@'10.0.2%.%';
 -- SHOW GRANTS FOR 'petclinic_app'@'10.0.2%.%';
+
+-- 이미 테이블이 만들어진 DB에는 위 인덱스가 없으니, 아래 3줄을 admin 계정으로 한 번만 실행하세요.
+-- (MySQL은 CREATE INDEX IF NOT EXISTS가 없어서, 두 번 실행하면 "Duplicate key name" 에러가 납니다)
+-- CREATE INDEX idx_consult_vet_status ON Consultation (vet_uid, status);
+-- CREATE INDEX idx_owner_branch_name  ON Owner (branch, oname);
+-- CREATE INDEX idx_session_created    ON Session (created_at);
